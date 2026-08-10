@@ -17,7 +17,7 @@ USER temporal
 # survive templateGenerate.
 ENV DB=postgres12 \
     DB_PORT=5432 \
-    POSTGRES_USER=temporal \
+    POSTGRES_USER=postgres \
     ENABLE_ES=true \
     ES_VERSION=v7 \
     ES_SCHEME=http \
