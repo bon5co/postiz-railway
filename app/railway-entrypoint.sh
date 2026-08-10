@@ -138,28 +138,58 @@ else
     log "WARNING: backend did not answer on 127.0.0.1:3000 within 360s"
 fi
 
+# Registration ends in a signalWithStart against Temporal, and the orchestrator
+# needs ~40s to compile its workflow bundles after the backend already answers.
+# Seeding inside that window still creates the organization and the SUPERADMIN,
+# but the request returns `400 Failed to signalWithStart Workflow` — a failure
+# to read the response by, and not a failure of the seed. So the seed below
+# treats the LOGIN as the verdict, and only waits on the orchestrator's
+# /health/status (which connects to Temporal and describes the namespace) if it
+# has to retry.
+wait_for_orchestrator() {
+    for _ in $(seq 1 60); do
+        if curl -fsS -o /dev/null "http://127.0.0.1:${ORCHESTRATOR_PORT}/health/status" 2>/dev/null; then
+            log "orchestrator reports a live Temporal connection"
+            return 0
+        fi
+        sleep 2
+    done
+    log "WARNING: orchestrator did not report a Temporal connection within 120s"
+    return 1
+}
+
 # --- 6. seed the organization + admin ------------------------------------
 json_escape() { POSTIZ_JSON_IN="$1" node -e 'process.stdout.write(JSON.stringify(process.env.POSTIZ_JSON_IN))'; }
 
 if [ "$ready" = 1 ]; then
-    can=$(curl -s "http://127.0.0.1:3000/auth/can-register" || echo '')
-    if [ "${can#*\"register\":true}" != "$can" ]; then
-        body=$(printf '{"provider":"LOCAL","email":%s,"password":%s,"company":%s}' \
-            "$(json_escape "$POSTIZ_ADMIN_EMAIL")" \
-            "$(json_escape "$POSTIZ_ADMIN_PASSWORD")" \
-            "$(json_escape "${POSTIZ_ORG_NAME:-My Workspace}")")
-        code=$(api POST /auth/register "$body")
-        case "$code" in
-            200|201) log "seeded organization '${POSTIZ_ORG_NAME:-My Workspace}' with SUPERADMIN $POSTIZ_ADMIN_EMAIL" ;;
-            *)       log "WARNING: admin seed returned $code: $(head -c 300 /tmp/postiz-api.out)" ;;
-        esac
-    else
-        log "an organization already exists on this database; leaving it alone"
-    fi
-
+    seed_body=$(printf '{"provider":"LOCAL","email":%s,"password":%s,"company":%s}' \
+        "$(json_escape "$POSTIZ_ADMIN_EMAIL")" \
+        "$(json_escape "$POSTIZ_ADMIN_PASSWORD")" \
+        "$(json_escape "${POSTIZ_ORG_NAME:-My Workspace}")")
     lbody=$(printf '{"provider":"LOCAL","email":%s,"password":%s}' \
         "$(json_escape "$POSTIZ_ADMIN_EMAIL")" "$(json_escape "$POSTIZ_ADMIN_PASSWORD")")
+
+    seed_once() {
+        can=$(curl -s "http://127.0.0.1:3000/auth/can-register" || echo '')
+        if [ "${can#*\"register\":true}" = "$can" ]; then
+            log "an organization already exists on this database; leaving it alone"
+            return 0
+        fi
+        code=$(api POST /auth/register "$seed_body")
+        case "$code" in
+            200|201) log "seeded organization '${POSTIZ_ORG_NAME:-My Workspace}' with SUPERADMIN $POSTIZ_ADMIN_EMAIL" ;;
+            *)       log "admin seed returned $code: $(head -c 300 /tmp/postiz-api.out)" ;;
+        esac
+    }
+
+    seed_once
     lcode=$(api POST /auth/login "$lbody")
+    if [ "$lcode" != 200 ]; then
+        log "login after the first seed attempt returned $lcode; waiting for the orchestrator and retrying once"
+        wait_for_orchestrator || true
+        seed_once
+        lcode=$(api POST /auth/login "$lbody")
+    fi
     if [ "$lcode" = 200 ]; then
         log "verified: $POSTIZ_ADMIN_EMAIL can log in with the current POSTIZ_ADMIN_PASSWORD"
     else
