@@ -5,12 +5,12 @@
 FROM elasticsearch:7.17.27
 
 # Baked, not published as template variables (a literal default publishes as a
-# blank required field). `network.host` includes :: because Railway's private
+# blank required field). `network.host` is the IPv6 wildcard because Railway's private
 # network is IPv6-only. Security stays off: this service has NO public domain
 # and is only reachable from its own project's private network.
 ENV discovery.type=single-node \
     xpack.security.enabled=false \
-    network.host=0.0.0.0,:: \
+    network.host=:: \
     cluster.routing.allocation.disk.threshold_enabled=true \
     cluster.routing.allocation.disk.watermark.low=512mb \
     cluster.routing.allocation.disk.watermark.high=256mb \
