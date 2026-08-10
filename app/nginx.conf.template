@@ -1,0 +1,94 @@
+user                            www;
+worker_processes                auto;
+
+events {
+    worker_connections          1024;
+}
+
+http {
+    include                     /etc/nginx/mime.types;
+    default_type                application/octet-stream;
+    sendfile                    on;
+    access_log                  off;
+    server_tokens               off;
+    client_max_body_size        ${POSTIZ_MAX_BODY_SIZE};
+
+    # Every request arrives from Railway's edge, so $remote_addr is always a
+    # 100.64.0.0/10 address shared by the whole internet. Railway REPLACES any
+    # inbound X-Forwarded-For, so the header is trustworthy — but it is
+    # "<client>, <edge>" and the edge hop ROTATES per request, so a key built
+    # from the whole header hands every retry a fresh bucket and the limiter
+    # never fires. Only the FIRST address is the caller.
+    map $http_x_forwarded_for $postiz_client {
+        ''             $remote_addr;
+        '~^([^,\s]+)'  $1;
+        default        $remote_addr;
+    }
+
+    limit_req_zone $postiz_client zone=postizauth:1m rate=${POSTIZ_AUTH_RATE};
+    limit_req_status 429;
+
+    server {
+        # Railway's HTTP healthcheck dials the INJECTED port, and upstream bakes
+        # `listen 5000;` with no envsubst anywhere, so this value is rendered at
+        # boot from $PORT by railway-entrypoint.sh.
+        listen ${POSTIZ_EDGE_PORT};
+        listen [::]:${POSTIZ_EDGE_PORT};
+        server_name _;
+        gzip on;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+        # Debug aid: the address the limiter keys on, as this container sees it.
+        add_header X-Postiz-Client $postiz_client always;
+
+        # Upstream applies no throttle to either auth route: 20 wrong passwords
+        # in a row all answer 400 with no backoff.
+        # An exact location cannot use the location-prefix rewrite that
+        # `location /api/` gets, so the upstream path is spelled out in full.
+        location = /api/auth/login {
+            limit_req zone=postizauth burst=${POSTIZ_AUTH_BURST} nodelay;
+            proxy_pass http://127.0.0.1:3000/auth/login;
+            include /etc/postiz/proxy-headers.conf;
+        }
+
+        location = /api/auth/register {
+            limit_req zone=postizauth burst=${POSTIZ_AUTH_BURST} nodelay;
+            proxy_pass http://127.0.0.1:3000/auth/register;
+            include /etc/postiz/proxy-headers.conf;
+        }
+
+        location = /api/auth/forgot {
+            limit_req zone=postizauth burst=${POSTIZ_AUTH_BURST} nodelay;
+            proxy_pass http://127.0.0.1:3000/auth/forgot;
+            include /etc/postiz/proxy-headers.conf;
+        }
+
+        location /api/ {
+            proxy_pass http://127.0.0.1:3000/;
+            include /etc/postiz/proxy-headers.conf;
+        }
+
+        location ${POSTIZ_UPLOAD_LOCATION} {
+            alias ${POSTIZ_UPLOAD_ALIAS};
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Content-Security-Policy "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'none'; script-src 'none'; frame-ancestors 'none'; sandbox" always;
+            types {
+                image/jpeg jpg jpeg;
+                image/png png;
+                image/gif gif;
+                image/webp webp;
+                image/avif avif;
+                image/bmp bmp;
+                image/tiff tif tiff;
+                video/mp4 mp4;
+            }
+            default_type application/octet-stream;
+        }
+
+        location / {
+            proxy_pass http://127.0.0.1:4200/;
+            include /etc/postiz/proxy-headers.conf;
+            proxy_set_header i18next $http_i18next;
+        }
+    }
+}

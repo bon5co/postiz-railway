@@ -1,0 +1,13 @@
+# Baked so the template needs no config mount — Railway has no way to mount a
+# file, and Postiz's compose file bind-mounts this exact content.
+#
+# forceSearchAttributesCacheRefreshOnRead matters here: the Postiz backend
+# registers the `organizationId` and `postId` search attributes at boot and then
+# uses them immediately, so a cached (empty) attribute set makes the first
+# schedule fail.
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
