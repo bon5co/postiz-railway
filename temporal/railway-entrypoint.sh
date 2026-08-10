@@ -20,6 +20,17 @@ if [ -z "${TEMPORAL_BROADCAST_ADDRESS:-}" ]; then
     export TEMPORAL_BROADCAST_ADDRESS="$addr"
 fi
 export BIND_ON_IP="${BIND_ON_IP:-::}"
-log "BIND_ON_IP=$BIND_ON_IP broadcast=$TEMPORAL_BROADCAST_ADDRESS es=${ES_SEEDS:-<unset>} db=${POSTGRES_SEEDS:-<unset>}"
+
+# TEMPORAL_ADDRESS is used ONLY by the CLI that auto-setup.sh polls for
+# readiness and then creates the default namespace with — the server itself
+# takes BIND_ON_IP. Left unset, upstream's entrypoint derives it from
+# BIND_ON_IP, which with an IPv6 wildcard produces the literal `[::]:7233`.
+# That address is not dialable, so the server serves normally
+# ("Starting to serve on frontend listener") while auto-setup loops
+# `failed reaching server: Frontend is not healthy yet` forever and the
+# default namespace is never created. Point the CLI at loopback instead.
+export TEMPORAL_ADDRESS="${TEMPORAL_ADDRESS:-127.0.0.1:7233}"
+export TEMPORAL_CLI_ADDRESS="$TEMPORAL_ADDRESS"
+log "BIND_ON_IP=$BIND_ON_IP broadcast=$TEMPORAL_BROADCAST_ADDRESS cli=$TEMPORAL_ADDRESS es=${ES_SEEDS:-<unset>} db=${POSTGRES_SEEDS:-<unset>}"
 
 exec /etc/temporal/entrypoint.sh autosetup
