@@ -3,7 +3,7 @@
 # Pinned by digest as well as tag: Postiz runs `prisma db push
 # --accept-data-loss` on every boot, which is forward-only in effect, so a
 # `latest` deploy is an unrequested one-way schema change.
-FROM ghcr.io/gitroomhq/postiz-app:v2.23.0@sha256:785f97312f66a347fb96cdccc4ded5a33ced69a672c89a9adc8054e7d6a21dc5
+FROM ghcr.io/gitroomhq/postiz-app:v2.25.1@sha256:d2b37802e96757729fdea2d3d71287f841c2b619faa1cb4c21dac07df657fde1
 
 # curl for the in-container seed calls, gettext-base for envsubst (the stock
 # nginx.conf has a hardcoded listen port and no templating of any kind).
