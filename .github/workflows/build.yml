@@ -16,7 +16,7 @@ jobs:
         include:
           - context: app
             name: postiz-railway
-            version: 2.25.1
+            version: 2.25.3
           - context: elasticsearch
             name: postiz-railway-elasticsearch
             version: 7.17.27
